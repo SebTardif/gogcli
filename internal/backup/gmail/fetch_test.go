@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -120,6 +121,31 @@ func TestListMessageIDsMarksMaxedPartialStateComplete(t *testing.T) {
 	if len(source.listRequests) != 0 {
 		t.Fatalf("requests = %+v", source.listRequests)
 	}
+}
+
+type stuckPageTokenSource struct{}
+
+func (stuckPageTokenSource) Labels(context.Context) ([]Label, error) {
+	return nil, nil
+}
+
+func (stuckPageTokenSource) ListMessageIDs(context.Context, ListRequest) (ListPage, error) {
+	return ListPage{IDs: []string{"m1"}, NextPageToken: "stuck"}, nil
+}
+
+func (stuckPageTokenSource) RawMessage(context.Context, string) (Message, error) {
+	return Message{}, nil
+}
+
+func TestListMessageIDsRejectsRepeatedPageToken(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	_, err := ListMessageIDs(ctx, stuckPageTokenSource{}, ListOptions{})
+	if err == nil || !strings.Contains(err.Error(), `repeated page token "stuck"`) {
+		t.Fatalf("err = %v", err)
+	}
+	t.Logf("err = %v", err)
 }
 
 func TestFetchMessagesPreservesInputOrderAcrossWorkers(t *testing.T) {

@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"google.golang.org/api/calendar/v3"
 	"google.golang.org/api/option"
@@ -79,4 +81,38 @@ func TestCalendarEventsListCall_EventTypesFilter(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestListCalendarListRejectsRepeatedPageToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !(strings.Contains(r.URL.Path, "calendarList") && r.Method == http.MethodGet) {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []map[string]any{
+				{"id": "c1", "summary": "One", "accessRole": "owner"},
+			},
+			"nextPageToken": "stuck",
+		})
+	}))
+	defer srv.Close()
+
+	svc, err := calendar.NewService(context.Background(),
+		option.WithHTTPClient(srv.Client()),
+		option.WithEndpoint(srv.URL+"/"),
+		option.WithoutAuthentication(),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	_, err = listCalendarList(ctx, svc)
+	if err == nil || !strings.Contains(err.Error(), "repeated page token") {
+		t.Fatalf("err = %v", err)
+	}
+	t.Logf("err = %v", err)
 }

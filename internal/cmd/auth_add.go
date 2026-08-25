@@ -29,7 +29,7 @@ type AuthAddCmd struct {
 	ForceConsent bool          `name:"force-consent" help:"Force consent screen to obtain a refresh token"`
 	ServicesCSV  string        `name:"services" help:"Services to authorize: user|all-user or comma-separated ${auth_services}; explicit opt-in: photospicker; all means all default user OAuth services. Workspace service-account-only services: admin, groups, keep" default:"user"`
 	DriveScope   string        `name:"drive-scope" help:"Drive scope mode: full|readonly|file" enum:"full,readonly,file" default:"full"`
-	GmailScope   string        `name:"gmail-scope" help:"Gmail scope mode: full|readonly" enum:"full,readonly" default:"full"`
+	GmailScope   string        `name:"gmail-scope" help:"Gmail scope mode: full|readonly|send|read-send" enum:"full,readonly,send,read-send" default:"full"`
 	ExtraScopes  string        `name:"extra-scopes" help:"Comma-separated list of additional OAuth scope URIs to request (appended after service scopes)"`
 }
 
@@ -79,6 +79,23 @@ func parseExtraScopesCSV(raw string) []string {
 	return scopes
 }
 
+func authScopeModes(readonly bool, rawDriveScope, rawGmailScope string) (string, string, bool, error) {
+	driveScope := strings.ToLower(strings.TrimSpace(rawDriveScope))
+	if readonly && driveScope == strFile {
+		return "", "", false, usage("cannot combine --readonly with --drive-scope=file (file is write-capable)")
+	}
+
+	gmailScope := strings.ToLower(strings.TrimSpace(rawGmailScope))
+	if readonly && (gmailScope == string(googleauth.GmailScopeSend) || gmailScope == string(googleauth.GmailScopeReadSend)) {
+		return "", "", false, usagef("cannot combine --readonly with --gmail-scope=%s (sending is write-capable)", gmailScope)
+	}
+
+	limitedGmailScope := gmailScope != "" && gmailScope != string(googleauth.GmailScopeFull)
+	disableIncremental := readonly || driveScope == "readonly" || driveScope == strFile || limitedGmailScope
+
+	return driveScope, gmailScope, disableIncremental, nil
+}
+
 func (c *AuthAddCmd) resolvedRedirectURI() (string, error) {
 	redirectURI := strings.TrimSpace(c.RedirectURI)
 	if strings.TrimSpace(c.RedirectHost) != "" && redirectURI != "" {
@@ -112,15 +129,10 @@ func (c *AuthAddCmd) Run(ctx context.Context, flags *RootFlags) error {
 		return fmt.Errorf("no services selected")
 	}
 
-	driveScope := strings.ToLower(strings.TrimSpace(c.DriveScope))
-	if readonly && driveScope == strFile {
-		return usage("cannot combine --readonly with --drive-scope=file (file is write-capable)")
+	driveScope, gmailScope, disableIncludeGrantedScopes, err := authScopeModes(readonly, c.DriveScope, c.GmailScope)
+	if err != nil {
+		return err
 	}
-	gmailScope := strings.ToLower(strings.TrimSpace(c.GmailScope))
-	disableIncludeGrantedScopes := readonly ||
-		driveScope == "readonly" ||
-		driveScope == strFile ||
-		gmailScope == "readonly"
 
 	extraScopes := parseExtraScopesCSV(c.ExtraScopes)
 

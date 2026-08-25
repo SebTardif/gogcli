@@ -578,6 +578,83 @@ func TestAuthAddCmd_GmailScopeReadonly(t *testing.T) {
 	}
 }
 
+func TestAuthAddCmd_GmailSendingScopes(t *testing.T) {
+	for _, tc := range []struct {
+		mode string
+		read bool
+	}{
+		{mode: "send"},
+		{mode: "read-send", read: true},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			openSecretsStore, authorizeGoogle, ensureKeychainAccess, fetchAuthorizedIdentity := defaultAuthTestOperations()
+			execute := func(args []string) error {
+				return executeWithRuntime(args, runtimeWithAuthTestOperations(
+					openSecretsStore, authorizeGoogle, ensureKeychainAccess, fetchAuthorizedIdentity,
+				))
+			}
+			ensureKeychainAccess = func(context.Context) error { return nil }
+			openSecretsStore = func() (secrets.Store, error) { return newMemSecretsStore(), nil }
+			var gotOpts googleauth.AuthorizeOptions
+			authorizeGoogle = func(_ context.Context, opts googleauth.AuthorizeOptions) (string, error) {
+				gotOpts = opts
+				return "rt", nil
+			}
+			fetchAuthorizedIdentity = func(context.Context, string, string, []string, time.Duration) (googleauth.Identity, error) {
+				return googleauth.Identity{Email: "user@example.com"}, nil
+			}
+			_ = captureStdout(t, func() {
+				_ = captureStderr(t, func() {
+					err := execute([]string{
+						"auth", "add", "user@example.com", "--services", "gmail", "--gmail-scope", tc.mode,
+					})
+					if err != nil {
+						t.Fatalf("execute: %v", err)
+					}
+				})
+			})
+			for _, want := range []string{
+				"https://www.googleapis.com/auth/gmail.send",
+				"openid",
+				"email",
+				"https://www.googleapis.com/auth/userinfo.email",
+			} {
+				if !containsStringInSlice(gotOpts.Scopes, want) {
+					t.Fatalf("missing %q in %v", want, gotOpts.Scopes)
+				}
+			}
+			if got := containsStringInSlice(gotOpts.Scopes, "https://www.googleapis.com/auth/gmail.readonly"); got != tc.read {
+				t.Fatalf("gmail.readonly = %t, want %t; scopes = %v", got, tc.read, gotOpts.Scopes)
+			}
+			for _, unwanted := range []string{
+				"https://mail.google.com/",
+				"https://www.googleapis.com/auth/gmail.modify",
+				"https://www.googleapis.com/auth/gmail.settings.basic",
+				"https://www.googleapis.com/auth/gmail.settings.sharing",
+			} {
+				if containsStringInSlice(gotOpts.Scopes, unwanted) {
+					t.Fatalf("unexpected %q in %v", unwanted, gotOpts.Scopes)
+				}
+			}
+			if !gotOpts.DisableIncludeGrantedScopes {
+				t.Fatalf("%s auth must disable include_granted_scopes", tc.mode)
+			}
+		})
+	}
+}
+
+func TestAuthAddCmd_ReadonlyRejectsGmailSendingScopes(t *testing.T) {
+	for _, mode := range []string{"send", "read-send"} {
+		t.Run(mode, func(t *testing.T) {
+			err := Execute([]string{"auth", "add", "user@example.com", "--services", "gmail", "--readonly", "--gmail-scope", mode})
+			var exitErr *ExitError
+			if !errors.As(err, &exitErr) || exitErr.Code != 2 || !strings.Contains(err.Error(), "--gmail-scope="+mode) {
+				t.Fatalf("error = %v, want usage error for %q", err, mode)
+			}
+		})
+	}
+}
+
 func TestAuthAddCmd_DriveScopeReadonly(t *testing.T) {
 	openSecretsStore, authorizeGoogle, ensureKeychainAccess, fetchAuthorizedIdentity := defaultAuthTestOperations()
 	execute := func(args []string) error {
@@ -907,6 +984,48 @@ func TestAuthAddCmd_DryRunSkipsOAuthForEveryFlow(t *testing.T) {
 			if !got.DryRun || got.Op != "auth.add" || got.Request.Email != "synthetic@example.com" ||
 				got.Request.Remote != test.remote || got.Request.Step != test.step {
 				t.Fatalf("unexpected dry-run request: %#v", got)
+			}
+		})
+	}
+}
+
+func TestAuthAddCmd_RemoteGmailSendingScopesDryRunStaysOffline(t *testing.T) {
+	for _, mode := range []string{"send", "read-send"} {
+		t.Run(mode, func(t *testing.T) {
+			authCalls := 0
+			runtime := &app.Runtime{Auth: app.AuthOperations{
+				ManualAuthURL: func(context.Context, googleauth.AuthorizeOptions) (googleauth.ManualAuthURLResult, error) {
+					authCalls++
+					return googleauth.ManualAuthURLResult{}, errors.New("OAuth state must not be created")
+				},
+				OpenSecretsStore: func() (secrets.Store, error) {
+					authCalls++
+					return nil, errors.New("keyring must not be opened")
+				},
+			}}
+			result := executeWithTestRuntime(t, []string{
+				"--json", "--dry-run", "--no-input", "--home", t.TempDir(),
+				"auth", "add", "user@example.com", "--services", "gmail", "--gmail-scope", mode, "--remote",
+			}, runtime)
+			if result.err != nil || authCalls != 0 {
+				t.Fatalf("dry-run: err=%v auth calls=%d", result.err, authCalls)
+			}
+			var got struct {
+				Request struct {
+					Scopes     []string `json:"scopes"`
+					GmailScope string   `json:"gmail_scope"`
+					Step       int      `json:"step"`
+				} `json:"request"`
+			}
+			if err := json.Unmarshal([]byte(result.stdout), &got); err != nil {
+				t.Fatalf("decode dry-run: %v", err)
+			}
+			if got.Request.GmailScope != mode || got.Request.Step != 1 ||
+				!containsStringInSlice(got.Request.Scopes, "https://www.googleapis.com/auth/gmail.send") {
+				t.Fatalf("unexpected dry-run request: %#v", got.Request)
+			}
+			if read := containsStringInSlice(got.Request.Scopes, "https://www.googleapis.com/auth/gmail.readonly"); read != (mode == "read-send") {
+				t.Fatalf("gmail.readonly = %t for %q", read, mode)
 			}
 		})
 	}

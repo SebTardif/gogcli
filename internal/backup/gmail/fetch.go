@@ -109,6 +109,9 @@ func ListMessageIDs(ctx context.Context, source Source, opts ListOptions) ([]str
 		}
 	}
 	emitEvent(opts.Progress, Event{Phase: EventPhaseList, Resume: "start", Done: len(ids)})
+	if initial := strings.TrimSpace(pageToken); initial != "" {
+		seenTokens[initial] = struct{}{}
+	}
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -138,8 +141,14 @@ func ListMessageIDs(ctx context.Context, source Source, opts ListOptions) ([]str
 
 		next := strings.TrimSpace(page.NextPageToken)
 		complete := next == "" || reachedSelectionMax(ids, opts.Selection.Max)
+		if !complete {
+			if _, exists := seenTokens[next]; exists {
+				return nil, fmt.Errorf("list Gmail backup messages: %w %q", errRepeatedPageToken, next)
+			}
+			seenTokens[next] = struct{}{}
+		}
 		if opts.UseCache {
-			nextToken := page.NextPageToken
+			nextToken := next
 			if complete {
 				nextToken = ""
 			}
@@ -150,11 +159,7 @@ func ListMessageIDs(ctx context.Context, source Source, opts ListOptions) ([]str
 		if complete {
 			break
 		}
-		if _, exists := seenTokens[next]; exists {
-			return nil, fmt.Errorf("list Gmail backup messages: %w %q", errRepeatedPageToken, next)
-		}
-		seenTokens[next] = struct{}{}
-		pageToken = page.NextPageToken
+		pageToken = next
 	}
 	return ids, nil
 }

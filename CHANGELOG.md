@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Security: bound `gmail watch serve` and the local OAuth callback HTTP servers with read, idle, and header-size limits so a slow or oversized request cannot stall the listener.
+- Calendar/Gmail: stop listing immediately when Google repeats a pagination token, including resumed Gmail backups. (#1004) — thanks @SebTardif.
 
 ## v0.37.0 - 2026-08-14
 

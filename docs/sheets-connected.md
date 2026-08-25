@@ -9,9 +9,9 @@ description: Inspect BigQuery and Looker data sources, execution status, and anc
 
 ## Authorize BigQuery access explicitly
 
-Google requires `https://www.googleapis.com/auth/bigquery.readonly` whenever a Sheets API response contains BigQuery Connected Sheets data. Ordinary `sheets` authorization intentionally does not request that scope.
+Google's [Connected Sheets API guide](https://developers.google.com/workspace/sheets/api/guides/connected-sheets) requires `https://www.googleapis.com/auth/bigquery.readonly` in addition to Sheets API authorization whenever a response contains BigQuery Connected Sheets data. Ordinary `sheets` authorization intentionally does not request the BigQuery scope.
 
-Re-authorize the account with its existing service selection, append the scope, and force the consent screen. For a Sheets-only token:
+If the stored account does not already have Sheets API authorization and the BigQuery read-only scope, re-authorize it with its existing service selection, append the BigQuery scope, and force the consent screen. For a Sheets-only token:
 
 ```bash
 gog auth add you@example.com \

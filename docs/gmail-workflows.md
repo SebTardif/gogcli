@@ -68,6 +68,28 @@ For account-specific send blocking, use the no-send config commands:
 - [`gog config no-send list`](commands/gog-config-no-send-list.md)
 - [`gog config no-send remove`](commands/gog-config-no-send-remove.md)
 
+### Send an exact RFC822 message
+
+Use raw mode when a trusted caller has already constructed and approved the
+complete message, including its headers and MIME body:
+
+```bash
+gog --account you@example.com gmail send --raw-file approved.eml
+cat approved.eml | gog --account you@example.com gmail send --raw-file - --thread-id <threadId>
+```
+
+Raw mode sends the input bytes unchanged. It cannot be combined with compose,
+reply, attachment, signature, or tracking flags; `--thread-id` is the only
+optional message setting, and Gmail thread URLs are accepted. The single `From`
+address must match the authenticated account or a verified send-as alias;
+checking aliases requires Gmail settings access, so a `--gmail-scope send` token
+can send only from its own account. Direct access tokens and ADC require an
+explicit `--account`. Read-only and global/per-account no-send policies still
+apply. A dry-run validates the RFC822 structure without authentication and
+reports only the source, byte count, SHA-256 digest, and optional thread ID.
+
+Command page: [`gog gmail send`](commands/gog-gmail-send.md).
+
 ## Import an RFC822 Message
 
 Import one existing RFC822/EML message from a file or stdin:

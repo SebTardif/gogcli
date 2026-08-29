@@ -185,9 +185,7 @@ func gmailFromContactQuery(ctx context.Context, account, selector string) (strin
 
 func listExactGmailFromContactPeople(ctx context.Context, svc *people.Service, selector string) ([]*people.Person, error) {
 	selectorLower := strings.ToLower(strings.TrimSpace(selector))
-	var matches []*people.Person
-	pageToken := ""
-	for {
+	fetch := func(pageToken string) ([]*people.Person, string, error) {
 		call := svc.People.Connections.List(peopleMeResource).
 			PersonFields("names,emailAddresses").
 			PageSize(200).
@@ -197,21 +195,24 @@ func listExactGmailFromContactPeople(ctx context.Context, svc *people.Service, s
 		}
 		resp, err := call.Do()
 		if err != nil {
-			return nil, fmt.Errorf("resolve --from-contact fallback list: %w", err)
+			return nil, "", fmt.Errorf("resolve --from-contact fallback list: %w", err)
 		}
-		for _, p := range resp.Connections {
-			if p == nil {
-				continue
-			}
-			if strings.ToLower(primaryName(p)) == selectorLower || contactHasEmail(p, selectorLower) {
-				matches = append(matches, p)
-			}
-		}
-		if resp.NextPageToken == "" {
-			return matches, nil
-		}
-		pageToken = resp.NextPageToken
+		return resp.Connections, resp.NextPageToken, nil
 	}
+	listed, err := collectAllPages("", fetch)
+	if err != nil {
+		return nil, err
+	}
+	var matches []*people.Person
+	for _, p := range listed {
+		if p == nil {
+			continue
+		}
+		if strings.ToLower(primaryName(p)) == selectorLower || contactHasEmail(p, selectorLower) {
+			matches = append(matches, p)
+		}
+	}
+	return matches, nil
 }
 
 func selectGmailFromContactPeople(selector string, resp *people.SearchResponse) []*people.Person {

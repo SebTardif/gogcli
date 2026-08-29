@@ -2,6 +2,9 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -53,4 +56,40 @@ func TestGmailFromContactQuery_WarmsContactsSearchCache(t *testing.T) {
 	if got, want := strings.Join(queries, ","), ",Alice"; got != want {
 		t.Fatalf("search queries = %q, want %q", got, want)
 	}
+}
+
+func TestGmailFromContactFallbackRejectsRepeatedPageToken(t *testing.T) {
+	var listCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "people:searchContacts") && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{}})
+		case strings.Contains(r.URL.Path, "/people/me/connections") && r.Method == http.MethodGet:
+			listCalls++
+			if listCalls > 8 {
+				t.Fatalf("repeated page token looped: %d list calls", listCalls)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"connections": []map[string]any{
+					{
+						"resourceName":   "people/c1",
+						"names":          []map[string]any{{"displayName": "Ada"}},
+						"emailAddresses": []map[string]any{{"value": "ada@example.com"}},
+					},
+				},
+				"nextPageToken": "stuck",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	svc := newPeopleServiceFromServer(t, srv)
+	_, err := gmailFromContactQuery(withPeopleContactsTestService(context.Background(), svc), "a@b.com", "Ada")
+	if err == nil || !strings.Contains(err.Error(), "repeated page token") {
+		t.Fatalf("err = %v after %d list calls", err, listCalls)
+	}
+	t.Logf("err = %v after %d list calls", err, listCalls)
 }

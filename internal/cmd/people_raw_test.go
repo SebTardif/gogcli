@@ -173,6 +173,39 @@ func TestContactsRaw_EmailAmbiguousContactsFails(t *testing.T) {
 	})
 }
 
+func TestPeopleRaw_EmailResolveRejectsRepeatedPageToken(t *testing.T) {
+	var listCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !(strings.Contains(r.URL.Path, "/people/me/connections") && r.Method == http.MethodGet) {
+			http.NotFound(w, r)
+			return
+		}
+		listCalls++
+		if listCalls > 8 {
+			t.Fatalf("repeated page token looped: %d list calls", listCalls)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"connections": []map[string]any{
+				{
+					"resourceName":   "people/c1",
+					"emailAddresses": []map[string]any{{"value": "ada@example.com"}},
+				},
+			},
+			"nextPageToken": "stuck",
+		})
+	}))
+	defer srv.Close()
+
+	ctx := withMockPeopleContactsService(t, rawTestContext(t), srv)
+	flags := &RootFlags{Account: "a@b.com"}
+	err := runKong(t, &PeopleRawCmd{}, []string{"ada@example.com"}, ctx, flags)
+	if err == nil || !strings.Contains(err.Error(), "repeated page token") {
+		t.Fatalf("err = %v after %d list calls", err, listCalls)
+	}
+	t.Logf("err = %v after %d list calls", err, listCalls)
+}
+
 func TestPeopleRaw_APIError(t *testing.T) {
 	srv := newPeopleRawTestServer(t, http.StatusInternalServerError, nil)
 	defer srv.Close()

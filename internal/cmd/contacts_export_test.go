@@ -80,6 +80,48 @@ func TestContactsExport_AllVCF_PaginatesAndIncludesCategories(t *testing.T) {
 	}
 }
 
+func TestContactsExport_GroupListingRejectsRepeatedPageToken(t *testing.T) {
+	var groupListCalls int
+	svc, closeSrv := newPeopleService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "people/me/connections") && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"connections": []map[string]any{{
+					"resourceName":   "people/c1",
+					"names":          []map[string]any{{"displayName": "Ada Lovelace"}},
+					"emailAddresses": []map[string]any{{"value": "ada@example.com"}},
+					"memberships": []map[string]any{{
+						"contactGroupMembership": map[string]any{"contactGroupResourceName": "contactGroups/friends"},
+					}},
+				}},
+			})
+		case strings.Contains(r.URL.Path, "contactGroups") && r.Method == http.MethodGet:
+			groupListCalls++
+			if groupListCalls > 8 {
+				t.Fatalf("repeated page token looped: %d list calls", groupListCalls)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"contactGroups": []map[string]any{
+					{"resourceName": "contactGroups/friends", "name": "Friends", "groupType": "USER_CONTACT_GROUP"},
+				},
+				"nextPageToken": "stuck",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(closeSrv)
+
+	result := executeWithPeopleTestServices(t, []string{"--account", "a@b.com", "contacts", "export", "--all", "--out", "-"}, peopleTestServices{
+		Contacts: fixedPeopleTestService(svc),
+	})
+	if result.err == nil || !strings.Contains(result.err.Error(), "repeated page token") {
+		t.Fatalf("err = %v after %d list calls", result.err, groupListCalls)
+	}
+	t.Logf("err = %v after %d list calls", result.err, groupListCalls)
+}
+
 func TestContactsExport_SelectorEmailExactMatch(t *testing.T) {
 	svc, closeSrv := newPeopleService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.URL.Path, "people:searchContacts") || r.Method != http.MethodGet {

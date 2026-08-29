@@ -604,12 +604,14 @@ func TestRetryTransportCalculateBackoffRetryAfter(t *testing.T) {
 func TestRetryTransportCalculateBackoffRetryAfterCaps(t *testing.T) {
 	rt := &RetryTransport{BaseDelay: time.Second}
 	resp := &http.Response{Header: http.Header{"Retry-After": []string{"3600"}}}
+
 	if got := rt.calculateBackoff(0, resp); got != 60*time.Second {
 		t.Fatalf("Retry-After 3600 = %s, want 60s", got)
 	}
 
 	date := time.Now().Add(24 * time.Hour).UTC().Format(http.TimeFormat)
 	resp = &http.Response{Header: http.Header{"Retry-After": []string{date}}}
+
 	if got := rt.calculateBackoff(0, resp); got != 60*time.Second {
 		t.Fatalf("Retry-After HTTP-date +24h = %s, want 60s", got)
 	}

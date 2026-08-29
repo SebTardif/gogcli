@@ -226,6 +226,7 @@ func capRetryAfter(wait time.Duration) time.Duration {
 	if wait > maxRetryAfter {
 		return maxRetryAfter
 	}
+
 	return wait
 }
 

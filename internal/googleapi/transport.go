@@ -233,12 +233,17 @@ func capRetryAfter(wait time.Duration) time.Duration {
 func (t *RetryTransport) calculateBackoff(attempt int, resp *http.Response) time.Duration {
 	// Check Retry-After header
 	if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
-		if seconds, err := strconv.Atoi(retryAfter); err == nil {
+		if seconds, err := strconv.ParseInt(retryAfter, 10, 64); err == nil || errors.Is(err, strconv.ErrRange) {
 			if seconds < 0 {
 				return 0
 			}
 
-			return capRetryAfter(time.Duration(seconds) * time.Second)
+			// Bound seconds before converting to a duration to avoid overflow.
+			if seconds >= int64(maxRetryAfter/time.Second) {
+				return maxRetryAfter
+			}
+
+			return time.Duration(seconds) * time.Second
 		}
 
 		if t, err := http.ParseTime(retryAfter); err == nil {

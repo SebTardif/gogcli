@@ -14,7 +14,9 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"google.golang.org/api/drive/v3"
 
@@ -604,6 +606,41 @@ func TestListDriveSyncChildrenRejectsIncompleteSearch(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "incomplete child listing") {
 		t.Fatalf("error = %v", err)
 	}
+}
+
+func TestListDriveSyncChildrenRejectsRepeatedPageToken(t *testing.T) {
+	t.Parallel()
+
+	var listCalls atomic.Int32
+	svc, closeServer := newDriveTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/files") {
+			http.NotFound(w, r)
+			return
+		}
+		if listCalls.Add(1) > 2 {
+			http.Error(w, "unexpected extra page request", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"files": []any{
+				map[string]any{"id": "child-1", "name": "a.txt"},
+			},
+			"nextPageToken": "stuck",
+		})
+	}))
+	defer closeServer()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := listDriveSyncChildren(ctx, svc, "parent", "")
+	if err == nil || !strings.Contains(err.Error(), "repeated page token") {
+		t.Fatalf("err = %v after %d list calls", err, listCalls.Load())
+	}
+	if got := listCalls.Load(); got != 2 {
+		t.Fatalf("list calls = %d, want 2", got)
+	}
+	t.Logf("err = %v after %d list calls", err, listCalls.Load())
 }
 
 func TestExecuteDriveSyncPushDryRunPlansWithoutWrites(t *testing.T) {

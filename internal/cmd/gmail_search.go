@@ -197,22 +197,18 @@ func listExactGmailFromContactPeople(ctx context.Context, svc *people.Service, s
 		if err != nil {
 			return nil, "", fmt.Errorf("resolve --from-contact fallback list: %w", err)
 		}
-		return resp.Connections, resp.NextPageToken, nil
-	}
-	listed, err := collectAllPages("", fetch)
-	if err != nil {
-		return nil, err
-	}
-	var matches []*people.Person
-	for _, p := range listed {
-		if p == nil {
-			continue
+		var matches []*people.Person
+		for _, p := range resp.Connections {
+			if p == nil {
+				continue
+			}
+			if strings.ToLower(primaryName(p)) == selectorLower || contactHasEmail(p, selectorLower) {
+				matches = append(matches, p)
+			}
 		}
-		if strings.ToLower(primaryName(p)) == selectorLower || contactHasEmail(p, selectorLower) {
-			matches = append(matches, p)
-		}
+		return matches, resp.NextPageToken, nil
 	}
-	return matches, nil
+	return collectAllPages("", fetch)
 }
 
 func selectGmailFromContactPeople(selector string, resp *people.SearchResponse) []*people.Person {

@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestDriveAuditSharingFindsPublicAndExternal(t *testing.T) {
@@ -59,4 +62,39 @@ func TestDriveAuditSharingFindsPublicAndExternal(t *testing.T) {
 	if parsed.Findings[0].PermissionID != "anyone" || parsed.Findings[1].PermissionID != "user1" {
 		t.Fatalf("unexpected findings: %#v", parsed.Findings)
 	}
+}
+
+func TestListDrivePermissionsForAuditRejectsRepeatedPageToken(t *testing.T) {
+	t.Parallel()
+
+	var listCalls atomic.Int32
+	svc, closeSvc := newDriveTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || !strings.Contains(r.URL.Path, "/files/file1/permissions") {
+			http.NotFound(w, r)
+			return
+		}
+		if listCalls.Add(1) > 2 {
+			http.Error(w, "unexpected extra page request", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"permissions": []map[string]any{
+				{"id": "anyone", "type": "anyone", "role": "reader"},
+			},
+			"nextPageToken": "stuck",
+		})
+	}))
+	defer closeSvc()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := listDrivePermissionsForAudit(ctx, svc, "file1")
+	if err == nil || !strings.Contains(err.Error(), "repeated page token") {
+		t.Fatalf("err = %v after %d list calls", err, listCalls.Load())
+	}
+	if got := listCalls.Load(); got != 2 {
+		t.Fatalf("list calls = %d, want 2", got)
+	}
+	t.Logf("err = %v after %d list calls", err, listCalls.Load())
 }

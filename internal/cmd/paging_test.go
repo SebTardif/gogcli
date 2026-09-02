@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -74,6 +75,53 @@ func TestCollectAllPages(t *testing.T) {
 		}
 		if calls != 2 {
 			t.Fatalf("calls = %d, want 2", calls)
+		}
+	})
+
+	t.Run("fetch error discards partial results", func(t *testing.T) {
+		t.Parallel()
+		fetchErr := errors.New("page two failed")
+		var calls int
+		got, err := collectAllPages("", func(pageToken string) ([]string, string, error) {
+			calls++
+			if calls == 1 {
+				return []string{"a"}, "page-2", nil
+			}
+			return nil, "", fetchErr
+		})
+		if !errors.Is(err, fetchErr) || got != nil || calls != 2 {
+			t.Fatalf("got = %#v, err = %v, calls = %d", got, err, calls)
+		}
+	})
+
+	t.Run("multi-token cycle stops before revisiting a page", func(t *testing.T) {
+		t.Parallel()
+		nextTokens := []string{"a", "b", "a"}
+		var calls int
+		got, err := collectAllPages("", func(pageToken string) ([]string, string, error) {
+			calls++
+			if calls > len(nextTokens) {
+				return nil, "", errors.New("fetch called after cycle")
+			}
+			return []string{"item"}, nextTokens[calls-1], nil
+		})
+		if got != nil || err == nil || !strings.Contains(err.Error(), "repeated page token") || calls != 3 {
+			t.Fatalf("got = %#v, err = %v, calls = %d", got, err, calls)
+		}
+	})
+
+	t.Run("unique tokens respect the page limit", func(t *testing.T) {
+		t.Parallel()
+		var calls int
+		got, err := collectAllPages("", func(pageToken string) ([]int, string, error) {
+			calls++
+			if calls > 10_000 {
+				return nil, "", errors.New("fetch called beyond page limit")
+			}
+			return []int{calls}, strconv.Itoa(calls), nil
+		})
+		if got != nil || err == nil || !strings.Contains(err.Error(), "pagination exceeded") || calls != 10_000 {
+			t.Fatalf("rows = %d, err = %v, calls = %d", len(got), err, calls)
 		}
 	})
 }

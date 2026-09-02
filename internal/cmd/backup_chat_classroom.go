@@ -258,79 +258,51 @@ func fetchBackupClassroomChildren(ctx context.Context, svc *classroom.Service, c
 }
 
 func fetchClassroomTopicsBestEffort(ctx context.Context, svc *classroom.Service, courseID string) ([]*classroom.Topic, error) {
-	out, err := collectAllPages("", func(pageToken string) ([]*classroom.Topic, string, error) {
-		resp, listErr := svc.Courses.Topics.List(courseID).PageSize(100).PageToken(pageToken).Context(ctx).Do()
-		if listErr != nil {
-			return nil, "", listErr
+	return collectAllPages("", func(pageToken string) ([]*classroom.Topic, string, error) {
+		resp, err := svc.Courses.Topics.List(courseID).PageSize(100).PageToken(pageToken).Context(ctx).Do()
+		if err != nil {
+			return nil, "", nil //nolint:nilerr // End best-effort listing without losing earlier pages.
 		}
 		return resp.Topic, resp.NextPageToken, nil
 	})
-	if isBackupPaginationGuardError(err) {
-		return nil, err
-	}
-	return out, nil
 }
 
 func fetchClassroomAnnouncementsBestEffort(ctx context.Context, svc *classroom.Service, courseID string) ([]*classroom.Announcement, error) {
-	out, err := collectAllPages("", func(pageToken string) ([]*classroom.Announcement, string, error) {
-		resp, listErr := svc.Courses.Announcements.List(courseID).PageSize(100).PageToken(pageToken).Context(ctx).Do()
-		if listErr != nil {
-			return nil, "", listErr
+	return collectAllPages("", func(pageToken string) ([]*classroom.Announcement, string, error) {
+		resp, err := svc.Courses.Announcements.List(courseID).PageSize(100).PageToken(pageToken).Context(ctx).Do()
+		if err != nil {
+			return nil, "", nil //nolint:nilerr // End best-effort listing without losing earlier pages.
 		}
 		return resp.Announcements, resp.NextPageToken, nil
 	})
-	if isBackupPaginationGuardError(err) {
-		return nil, err
-	}
-	return out, nil
 }
 
 func fetchClassroomCourseWorkBestEffort(ctx context.Context, svc *classroom.Service, courseID string) ([]*classroom.CourseWork, error) {
-	out, err := collectAllPages("", func(pageToken string) ([]*classroom.CourseWork, string, error) {
-		resp, listErr := svc.Courses.CourseWork.List(courseID).PageSize(100).PageToken(pageToken).Context(ctx).Do()
-		if listErr != nil {
-			return nil, "", listErr
+	return collectAllPages("", func(pageToken string) ([]*classroom.CourseWork, string, error) {
+		resp, err := svc.Courses.CourseWork.List(courseID).PageSize(100).PageToken(pageToken).Context(ctx).Do()
+		if err != nil {
+			return nil, "", nil //nolint:nilerr // End best-effort listing without losing earlier pages.
 		}
 		return resp.CourseWork, resp.NextPageToken, nil
 	})
-	if isBackupPaginationGuardError(err) {
-		return nil, err
-	}
-	return out, nil
 }
 
 func fetchClassroomMaterialsBestEffort(ctx context.Context, svc *classroom.Service, courseID string) ([]*classroom.CourseWorkMaterial, error) {
-	out, err := collectAllPages("", func(pageToken string) ([]*classroom.CourseWorkMaterial, string, error) {
-		resp, listErr := svc.Courses.CourseWorkMaterials.List(courseID).PageSize(100).PageToken(pageToken).Context(ctx).Do()
-		if listErr != nil {
-			return nil, "", listErr
+	return collectAllPages("", func(pageToken string) ([]*classroom.CourseWorkMaterial, string, error) {
+		resp, err := svc.Courses.CourseWorkMaterials.List(courseID).PageSize(100).PageToken(pageToken).Context(ctx).Do()
+		if err != nil {
+			return nil, "", nil //nolint:nilerr // End best-effort listing without losing earlier pages.
 		}
 		return resp.CourseWorkMaterial, resp.NextPageToken, nil
 	})
-	if isBackupPaginationGuardError(err) {
-		return nil, err
-	}
-	return out, nil
 }
 
 func fetchClassroomSubmissionsBestEffort(ctx context.Context, svc *classroom.Service, courseID string) ([]*classroom.StudentSubmission, error) {
-	out, err := collectAllPages("", func(pageToken string) ([]*classroom.StudentSubmission, string, error) {
-		resp, listErr := svc.Courses.CourseWork.StudentSubmissions.List(courseID, "-").PageSize(100).PageToken(pageToken).Context(ctx).Do()
-		if listErr != nil {
-			return nil, "", listErr
+	return collectAllPages("", func(pageToken string) ([]*classroom.StudentSubmission, string, error) {
+		resp, err := svc.Courses.CourseWork.StudentSubmissions.List(courseID, "-").PageSize(100).PageToken(pageToken).Context(ctx).Do()
+		if err != nil {
+			return nil, "", nil //nolint:nilerr // End best-effort listing without losing earlier pages.
 		}
 		return resp.StudentSubmissions, resp.NextPageToken, nil
 	})
-	if isBackupPaginationGuardError(err) {
-		return nil, err
-	}
-	return out, nil
-}
-
-func isBackupPaginationGuardError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "pagination loop") || strings.Contains(msg, "pagination exceeded")
 }

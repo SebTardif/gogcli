@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	"google.golang.org/api/people/v1"
 )
 
 // defaultPeopleRawMask is the field mask used when the user does not
@@ -65,7 +63,8 @@ func runPeopleRaw(ctx context.Context, flags *RootFlags, id, fields string, pret
 
 	resource := normalizePeopleResource(identifier)
 	if strings.Contains(identifier, "@") && !strings.HasPrefix(identifier, "people/") {
-		fetch := func(pageToken string) ([]*people.Person, string, error) {
+		seen := make(map[string]bool)
+		fetch := func(pageToken string) ([]string, string, error) {
 			call := svc.People.Connections.List(peopleMeResource).
 				PersonFields("names,emailAddresses,metadata").
 				PageSize(1000).
@@ -77,20 +76,19 @@ func runPeopleRaw(ctx context.Context, flags *RootFlags, id, fields string, pret
 			if listErr != nil {
 				return nil, "", wrapPeopleAPIError(listErr)
 			}
-			return connections.Connections, connections.NextPageToken, nil
+			var matches []string
+			for _, person := range connections.Connections {
+				if person == nil || !personHasEmail(person, identifier) || person.ResourceName == "" || seen[person.ResourceName] {
+					continue
+				}
+				seen[person.ResourceName] = true
+				matches = append(matches, person.ResourceName)
+			}
+			return matches, connections.NextPageToken, nil
 		}
-		connections, listErr := collectAllPages("", fetch)
+		matches, listErr := collectAllPages("", fetch)
 		if listErr != nil {
 			return listErr
-		}
-		matches := make([]string, 0, 1)
-		seen := make(map[string]bool)
-		for _, person := range connections {
-			if person == nil || !personHasEmail(person, identifier) || person.ResourceName == "" || seen[person.ResourceName] {
-				continue
-			}
-			seen[person.ResourceName] = true
-			matches = append(matches, person.ResourceName)
 		}
 		switch len(matches) {
 		case 0:

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- AdSense: add explicitly opted-in read-only account, inventory, and report commands, including saved reports and validated reporting timezones. (#1047) — thanks @ptz0n.
 - Chat: search messages across Workspace spaces with paging, formatted text, optional read-state metadata, and read-only/untrusted-output support; unavailable read state stays unknown. (#1069, #1068) — thanks @wrgrant.
 - Gmail: expose flattened `reply_to` in message JSON and default metadata reads, including sanitized messages and threads, with untrusted-content wrapping support. (#1057) — thanks @hashtag1974.
 - Docs: accept the A3 page-size preset in `docs page-layout` and `docs write`, preserving the current page mode unless explicitly changed. (#1050) — thanks @ryo-touch.

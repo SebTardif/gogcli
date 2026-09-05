@@ -98,18 +98,16 @@ func TestFetchBackupCloudIdentityGroupMembersRejectsRepeatedPageToken(t *testing
 	t.Logf("member error = %s after %d list calls", got[0].Error, listCalls.Load())
 }
 
-func TestFetchBackupAdminUsersRejectsRepeatedPageToken(t *testing.T) {
-	t.Parallel()
-
-	var calls atomic.Int32
-	svc := newAdminTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/users") {
+func newStuckAdminBackupHandler(t *testing.T, calls *atomic.Int32, suffix, extra, key string, item map[string]any) http.Handler {
+	t.Helper()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, suffix) {
 			http.NotFound(w, r)
 			return
 		}
 		n := calls.Add(1)
 		if n > 2 {
-			http.Error(w, "unexpected extra user page request", http.StatusBadRequest)
+			http.Error(w, extra, http.StatusBadRequest)
 			return
 		}
 		wantToken := ""
@@ -120,10 +118,17 @@ func TestFetchBackupAdminUsersRejectsRepeatedPageToken(t *testing.T) {
 		requireQuery(t, r, "domain", "example.com")
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"users":         []map[string]any{{"primaryEmail": "ada@example.com"}},
+			key:             []map[string]any{item},
 			"nextPageToken": "stuck",
 		})
-	}))
+	})
+}
+
+func TestFetchBackupAdminUsersRejectsRepeatedPageToken(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+	svc := newAdminTestService(t, newStuckAdminBackupHandler(t, &calls, "/users", "unexpected extra user page request", "users", map[string]any{"primaryEmail": "ada@example.com"}))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -144,28 +149,7 @@ func TestFetchBackupAdminGroupsRejectsRepeatedPageToken(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
-	svc := newAdminTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/groups") {
-			http.NotFound(w, r)
-			return
-		}
-		n := calls.Add(1)
-		if n > 2 {
-			http.Error(w, "unexpected extra admin group page request", http.StatusBadRequest)
-			return
-		}
-		wantToken := ""
-		if n == 2 {
-			wantToken = "stuck"
-		}
-		requireQuery(t, r, "pageToken", wantToken)
-		requireQuery(t, r, "domain", "example.com")
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"groups":        []map[string]any{{"email": "eng@example.com"}},
-			"nextPageToken": "stuck",
-		})
-	}))
+	svc := newAdminTestService(t, newStuckAdminBackupHandler(t, &calls, "/groups", "unexpected extra admin group page request", "groups", map[string]any{"email": "eng@example.com"}))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

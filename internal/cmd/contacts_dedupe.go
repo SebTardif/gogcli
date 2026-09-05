@@ -148,37 +148,45 @@ func contactsDedupeGetResources(ctx context.Context, svc *people.Service, resour
 }
 
 func contactsDedupeList(ctx context.Context, svc *people.Service, maxResults int64) ([]*people.Person, error) {
-	var out []*people.Person
-	pageToken := ""
-	for {
+	fetched := 0
+	fetch := func(pageToken string) ([]*people.Person, string, error) {
 		pageSize := int64(500)
-		if maxResults > 0 && maxResults-int64(len(out)) < pageSize {
-			pageSize = maxResults - int64(len(out))
+		if maxResults > 0 {
+			remaining := maxResults - int64(fetched)
+			if remaining <= 0 {
+				return nil, "", nil
+			}
+			if remaining < pageSize {
+				pageSize = remaining
+			}
 		}
-		resp, err := svc.People.Connections.List(peopleMeResource).
+		call := svc.People.Connections.List(peopleMeResource).
 			PersonFields(contactsReadMask).
 			PageSize(pageSize).
-			PageToken(pageToken).
 			RequestSyncToken(false).
-			Sources("READ_SOURCE_TYPE_CONTACT").
-			Context(ctx).
-			Do()
+			Sources(contactsDedupeContactSource).
+			Context(ctx)
+		if pageToken != "" {
+			call = call.PageToken(pageToken)
+		}
+		resp, err := call.Do()
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
+		var page []*people.Person
 		for _, p := range resp.Connections {
-			if p != nil {
-				out = append(out, p)
+			if p == nil {
+				continue
 			}
-			if maxResults > 0 && int64(len(out)) >= maxResults {
-				return out, nil
+			page = append(page, p)
+			fetched++
+			if maxResults > 0 && int64(fetched) >= maxResults {
+				return page, "", nil
 			}
 		}
-		if resp.NextPageToken == "" {
-			return out, nil
-		}
-		pageToken = resp.NextPageToken
+		return page, resp.NextPageToken, nil
 	}
+	return collectAllPages("", fetch)
 }
 
 type contactsDedupeGroup struct {

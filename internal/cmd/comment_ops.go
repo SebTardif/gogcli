@@ -142,14 +142,21 @@ func listDriveComments(ctx context.Context, svc *drive.Service, fileID string, o
 		return comments, nextPageToken, nil
 	}
 
-	pageToken := opts.page
+	pageToken := strings.TrimSpace(opts.page)
+	seen := map[string]bool{}
 	for {
+		if seen[pageToken] {
+			return nil, "", fmt.Errorf("pagination loop: repeated page token %q", pageToken)
+		}
+		seen[pageToken] = true
+
 		pageComments, nextPageToken, err := fetch(pageToken)
 		if err != nil {
 			return nil, "", err
 		}
 		open := filterOpenComments(pageComments)
-		if len(open) > 0 || strings.TrimSpace(nextPageToken) == "" {
+		nextPageToken = strings.TrimSpace(nextPageToken)
+		if len(open) > 0 || nextPageToken == "" {
 			return open, nextPageToken, nil
 		}
 		pageToken = nextPageToken

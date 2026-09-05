@@ -143,12 +143,11 @@ func listDriveComments(ctx context.Context, svc *drive.Service, fileID string, o
 	}
 
 	pageToken := strings.TrimSpace(opts.page)
-	seen := map[string]bool{}
+	var guard pageTokenGuard
 	for {
-		if seen[pageToken] {
-			return nil, "", fmt.Errorf("pagination loop: repeated page token %q", pageToken)
+		if err := guard.check(pageToken); err != nil {
+			return nil, "", err
 		}
-		seen[pageToken] = true
 
 		pageComments, nextPageToken, err := fetch(pageToken)
 		if err != nil {

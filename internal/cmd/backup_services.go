@@ -209,24 +209,23 @@ func fetchBackupCalendarACLRules(ctx context.Context, svc *calendar.Service, cal
 		if cal == nil || strings.TrimSpace(cal.Id) == "" {
 			continue
 		}
-		pageToken := ""
-		for {
+		rules, err := collectAllPages("", func(pageToken string) ([]*calendar.AclRule, string, error) {
 			call := svc.Acl.List(cal.Id).MaxResults(250).Context(ctx)
 			if pageToken != "" {
 				call = call.PageToken(pageToken)
 			}
 			resp, err := call.Do()
 			if err != nil {
-				out = append(out, calendarBackupACLRule{CalendarID: cal.Id, Error: err.Error()})
-				break
+				return nil, "", err
 			}
-			for _, rule := range resp.Items {
-				out = append(out, calendarBackupACLRule{CalendarID: cal.Id, Rule: rule})
-			}
-			if resp.NextPageToken == "" {
-				break
-			}
-			pageToken = resp.NextPageToken
+			return resp.Items, resp.NextPageToken, nil
+		})
+		if err != nil {
+			out = append(out, calendarBackupACLRule{CalendarID: cal.Id, Error: err.Error()})
+			continue
+		}
+		for _, rule := range rules {
+			out = append(out, calendarBackupACLRule{CalendarID: cal.Id, Rule: rule})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -239,22 +238,19 @@ func fetchBackupCalendarACLRules(ctx context.Context, svc *calendar.Service, cal
 }
 
 func fetchBackupCalendarSettings(ctx context.Context, svc *calendar.Service) ([]*calendar.Setting, error) {
-	var out []*calendar.Setting
-	pageToken := ""
-	for {
+	out, err := collectAllPages("", func(pageToken string) ([]*calendar.Setting, string, error) {
 		call := svc.Settings.List().MaxResults(250).Context(ctx)
 		if pageToken != "" {
 			call = call.PageToken(pageToken)
 		}
 		resp, err := call.Do()
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		out = append(out, resp.Items...)
-		if resp.NextPageToken == "" {
-			break
-		}
-		pageToken = resp.NextPageToken
+		return resp.Items, resp.NextPageToken, nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Id < out[j].Id })
 	return out, nil
@@ -312,22 +308,19 @@ func buildTasksBackupSnapshot(ctx context.Context, flags *RootFlags, shardMaxRow
 }
 
 func fetchBackupCalendars(ctx context.Context, svc *calendar.Service) ([]*calendar.CalendarListEntry, error) {
-	var out []*calendar.CalendarListEntry
-	pageToken := ""
-	for {
+	out, err := collectAllPages("", func(pageToken string) ([]*calendar.CalendarListEntry, string, error) {
 		call := svc.CalendarList.List().MaxResults(250).Context(ctx)
 		if pageToken != "" {
 			call = call.PageToken(pageToken)
 		}
 		resp, err := call.Do()
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		out = append(out, resp.Items...)
-		if resp.NextPageToken == "" {
-			break
-		}
-		pageToken = resp.NextPageToken
+		return resp.Items, resp.NextPageToken, nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Id < out[j].Id })
 	return out, nil
@@ -339,8 +332,7 @@ func fetchBackupCalendarEvents(ctx context.Context, svc *calendar.Service, calen
 		if cal == nil || strings.TrimSpace(cal.Id) == "" {
 			continue
 		}
-		pageToken := ""
-		for {
+		events, err := collectAllPages("", func(pageToken string) ([]*calendar.Event, string, error) {
 			call := svc.Events.List(cal.Id).
 				MaxResults(2500).
 				ShowDeleted(true).
@@ -351,15 +343,15 @@ func fetchBackupCalendarEvents(ctx context.Context, svc *calendar.Service, calen
 			}
 			resp, err := call.Do()
 			if err != nil {
-				return nil, fmt.Errorf("calendar %s events: %w", cal.Id, err)
+				return nil, "", fmt.Errorf("calendar %s events: %w", cal.Id, err)
 			}
-			for _, event := range resp.Items {
-				out = append(out, calendarBackupEvent{CalendarID: cal.Id, Event: event})
-			}
-			if resp.NextPageToken == "" {
-				break
-			}
-			pageToken = resp.NextPageToken
+			return resp.Items, resp.NextPageToken, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, event := range events {
+			out = append(out, calendarBackupEvent{CalendarID: cal.Id, Event: event})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -372,9 +364,7 @@ func fetchBackupCalendarEvents(ctx context.Context, svc *calendar.Service, calen
 }
 
 func fetchBackupConnections(ctx context.Context, svc *people.Service) ([]contactsBackupPerson, error) {
-	var out []contactsBackupPerson
-	pageToken := ""
-	for {
+	peopleRows, err := collectAllPages("", func(pageToken string) ([]*people.Person, string, error) {
 		call := svc.People.Connections.List(peopleMeResource).
 			PersonFields(contactsGetReadMask).
 			PageSize(1000).
@@ -384,15 +374,16 @@ func fetchBackupConnections(ctx context.Context, svc *people.Service) ([]contact
 		}
 		resp, err := call.Do()
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		for _, person := range resp.Connections {
-			out = append(out, contactsBackupPerson{Source: "connections", Person: person})
-		}
-		if resp.NextPageToken == "" {
-			break
-		}
-		pageToken = resp.NextPageToken
+		return resp.Connections, resp.NextPageToken, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]contactsBackupPerson, 0, len(peopleRows))
+	for _, person := range peopleRows {
+		out = append(out, contactsBackupPerson{Source: "connections", Person: person})
 	}
 	return out, nil
 }
@@ -400,9 +391,7 @@ func fetchBackupConnections(ctx context.Context, svc *people.Service) ([]contact
 func fetchBackupOtherContacts(ctx context.Context, svc *people.Service) ([]contactsBackupPerson, error) {
 	const otherContactsBackupReadMask = "names,emailAddresses,phoneNumbers"
 
-	var out []contactsBackupPerson
-	pageToken := ""
-	for {
+	peopleRows, err := collectAllPages("", func(pageToken string) ([]*people.Person, string, error) {
 		call := svc.OtherContacts.List().
 			ReadMask(otherContactsBackupReadMask).
 			PageSize(1000).
@@ -412,23 +401,22 @@ func fetchBackupOtherContacts(ctx context.Context, svc *people.Service) ([]conta
 		}
 		resp, err := call.Do()
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		for _, person := range resp.OtherContacts {
-			out = append(out, contactsBackupPerson{Source: "other", Person: person})
-		}
-		if resp.NextPageToken == "" {
-			break
-		}
-		pageToken = resp.NextPageToken
+		return resp.OtherContacts, resp.NextPageToken, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]contactsBackupPerson, 0, len(peopleRows))
+	for _, person := range peopleRows {
+		out = append(out, contactsBackupPerson{Source: "other", Person: person})
 	}
 	return out, nil
 }
 
 func fetchBackupContactGroups(ctx context.Context, svc *people.Service) ([]*people.ContactGroup, error) {
-	var out []*people.ContactGroup
-	pageToken := ""
-	for {
+	out, err := collectAllPages("", func(pageToken string) ([]*people.ContactGroup, string, error) {
 		call := svc.ContactGroups.List().
 			PageSize(1000).
 			GroupFields("clientData,groupType,memberCount,metadata,name").
@@ -438,35 +426,31 @@ func fetchBackupContactGroups(ctx context.Context, svc *people.Service) ([]*peop
 		}
 		resp, err := call.Do()
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		out = append(out, resp.ContactGroups...)
-		if resp.NextPageToken == "" {
-			break
-		}
-		pageToken = resp.NextPageToken
+		return resp.ContactGroups, resp.NextPageToken, nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
 
 func fetchBackupTaskLists(ctx context.Context, svc *tasks.Service) ([]*tasks.TaskList, error) {
-	var out []*tasks.TaskList
-	pageToken := ""
-	for {
+	out, err := collectAllPages("", func(pageToken string) ([]*tasks.TaskList, string, error) {
 		call := svc.Tasklists.List().MaxResults(100).Context(ctx)
 		if pageToken != "" {
 			call = call.PageToken(pageToken)
 		}
 		resp, err := call.Do()
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		out = append(out, resp.Items...)
-		if resp.NextPageToken == "" {
-			break
-		}
-		pageToken = resp.NextPageToken
+		return resp.Items, resp.NextPageToken, nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Id < out[j].Id })
 	return out, nil
@@ -478,8 +462,7 @@ func fetchBackupTasks(ctx context.Context, svc *tasks.Service, lists []*tasks.Ta
 		if list == nil || strings.TrimSpace(list.Id) == "" {
 			continue
 		}
-		pageToken := ""
-		for {
+		items, err := collectAllPages("", func(pageToken string) ([]*tasks.Task, string, error) {
 			call := svc.Tasks.List(list.Id).
 				MaxResults(100).
 				ShowCompleted(true).
@@ -492,15 +475,15 @@ func fetchBackupTasks(ctx context.Context, svc *tasks.Service, lists []*tasks.Ta
 			}
 			resp, err := call.Do()
 			if err != nil {
-				return nil, fmt.Errorf("task list %s tasks: %w", list.Id, err)
+				return nil, "", fmt.Errorf("task list %s tasks: %w", list.Id, err)
 			}
-			for _, task := range resp.Items {
-				out = append(out, tasksBackupTask{TaskListID: list.Id, Task: task})
-			}
-			if resp.NextPageToken == "" {
-				break
-			}
-			pageToken = resp.NextPageToken
+			return resp.Items, resp.NextPageToken, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, task := range items {
+			out = append(out, tasksBackupTask{TaskListID: list.Id, Task: task})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {

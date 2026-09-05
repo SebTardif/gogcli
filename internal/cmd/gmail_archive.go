@@ -256,6 +256,7 @@ func searchMessageIDs(ctx context.Context, svc *gmail.Service, query string, lim
 	var ids []string
 	pageToken := ""
 	remaining := limit
+	seenTokens := map[string]struct{}{}
 
 	for {
 		batchSize := remaining
@@ -280,10 +281,15 @@ func searchMessageIDs(ctx context.Context, svc *gmail.Service, query string, lim
 		}
 
 		remaining -= int64(len(resp.Messages))
-		if resp.NextPageToken == "" || remaining <= 0 {
+		next := strings.TrimSpace(resp.NextPageToken)
+		if next == "" || remaining <= 0 {
 			break
 		}
-		pageToken = resp.NextPageToken
+		if _, exists := seenTokens[next]; exists {
+			return nil, fmt.Errorf("pagination loop: repeated page token %q", next)
+		}
+		seenTokens[next] = struct{}{}
+		pageToken = next
 	}
 
 	return ids, nil

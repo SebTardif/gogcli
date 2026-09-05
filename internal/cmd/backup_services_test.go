@@ -15,8 +15,6 @@ import (
 )
 
 func TestFetchBackupCalendarsRejectsRepeatedPageToken(t *testing.T) {
-	t.Parallel()
-
 	var calls atomic.Int32
 	svc, closeSvc := newCalendarServiceForTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || !strings.Contains(r.URL.Path, "/calendarList") {
@@ -57,8 +55,6 @@ func TestFetchBackupCalendarsRejectsRepeatedPageToken(t *testing.T) {
 }
 
 func TestFetchBackupConnectionsRejectsRepeatedPageToken(t *testing.T) {
-	t.Parallel()
-
 	var calls atomic.Int32
 	svc, closeSvc := newGoogleTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || !strings.Contains(r.URL.Path, "people/me/connections") {
@@ -99,8 +95,6 @@ func TestFetchBackupConnectionsRejectsRepeatedPageToken(t *testing.T) {
 }
 
 func TestFetchBackupTaskListsRejectsRepeatedPageToken(t *testing.T) {
-	t.Parallel()
-
 	var calls atomic.Int32
 	svc, closeSvc := newGoogleTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/users/@me/lists") {
@@ -141,8 +135,6 @@ func TestFetchBackupTaskListsRejectsRepeatedPageToken(t *testing.T) {
 }
 
 func TestFetchBackupCalendarsTwoDistinctPagesSucceed(t *testing.T) {
-	t.Parallel()
-
 	var calls atomic.Int32
 	svc, closeSvc := newCalendarServiceForTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || !strings.Contains(r.URL.Path, "/calendarList") {
@@ -185,8 +177,6 @@ func TestFetchBackupCalendarsTwoDistinctPagesSucceed(t *testing.T) {
 }
 
 func TestFetchBackupCalendarEventsRejectsRepeatedPageToken(t *testing.T) {
-	t.Parallel()
-
 	var calls atomic.Int32
 	svc, closeSvc := newCalendarServiceForTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || !strings.Contains(r.URL.Path, "/calendars/cal-1/events") {

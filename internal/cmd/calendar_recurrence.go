@@ -65,29 +65,27 @@ func resolveRecurringInstanceID(ctx context.Context, svc *calendar.Service, cale
 		return "", err
 	}
 
-	call := svc.Events.Instances(calendarID, recurringEventID).
-		ShowDeleted(false).
-		TimeMin(timeMin).
-		TimeMax(timeMax)
-
-	for {
-		resp, err := call.Context(ctx).Do()
-		if err != nil {
-			return "", err
-		}
-		for _, item := range resp.Items {
-			if matchesOriginalStart(item, originalStart) {
-				return item.Id, nil
-			}
-		}
-		if resp.NextPageToken == "" {
-			break
-		}
-		call = svc.Events.Instances(calendarID, recurringEventID).
+	items, err := collectAllPages("", func(pageToken string) ([]*calendar.Event, string, error) {
+		call := svc.Events.Instances(calendarID, recurringEventID).
 			ShowDeleted(false).
 			TimeMin(timeMin).
-			TimeMax(timeMax).
-			PageToken(resp.NextPageToken)
+			TimeMax(timeMax)
+		if pageToken != "" {
+			call = call.PageToken(pageToken)
+		}
+		resp, err := call.Context(ctx).Do()
+		if err != nil {
+			return nil, "", err
+		}
+		return resp.Items, resp.NextPageToken, nil
+	})
+	if err != nil {
+		return "", err
+	}
+	for _, item := range items {
+		if matchesOriginalStart(item, originalStart) {
+			return item.Id, nil
+		}
 	}
 
 	return "", fmt.Errorf("no instance found for original start %q", originalStart)

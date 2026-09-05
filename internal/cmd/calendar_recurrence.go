@@ -73,9 +73,9 @@ func resolveRecurringInstanceID(ctx context.Context, svc *calendar.Service, cale
 		if pageToken != "" {
 			call = call.PageToken(pageToken)
 		}
-		resp, err := call.Context(ctx).Do()
-		if err != nil {
-			return nil, "", err
+		resp, doErr := call.Context(ctx).Do()
+		if doErr != nil {
+			return nil, "", doErr
 		}
 		return resp.Items, resp.NextPageToken, nil
 	})

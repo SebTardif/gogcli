@@ -364,10 +364,7 @@ func listDriveChildren(ctx context.Context, svc *drive.Service, parentID string,
 		parentID = driveRootID
 	}
 	q := buildDriveListQuery(parentID, "")
-	out := make([]*drive.File, 0, 64)
-	var pageToken string
-
-	for {
+	fetch := func(pageToken string) ([]*drive.File, string, error) {
 		call := svc.Files.List().
 			Q(q).
 			PageSize(driveDefaultPageSize).
@@ -380,16 +377,11 @@ func listDriveChildren(ctx context.Context, svc *drive.Service, parentID string,
 		).Context(ctx)
 		resp, err := call.Do()
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		out = append(out, resp.Files...)
-		if resp.NextPageToken == "" {
-			break
-		}
-		pageToken = resp.NextPageToken
+		return resp.Files, resp.NextPageToken, nil
 	}
-
-	return out, nil
+	return collectAllPages("", fetch)
 }
 
 func driveOwners(f *drive.File) []string {

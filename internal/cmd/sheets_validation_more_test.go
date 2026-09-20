@@ -139,7 +139,7 @@ func TestSheetsUpdateCopyValidationMissingRange(t *testing.T) {
 	}
 }
 
-func TestSheetsAppendCopyValidationMissingRange(t *testing.T) {
+func TestSheetsAppendMissingUpdates(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/sheets/v4")
 		path = strings.TrimPrefix(path, "/v4")
@@ -157,8 +157,41 @@ func TestSheetsAppendCopyValidationMissingRange(t *testing.T) {
 	flags := &RootFlags{Account: "a@b.com"}
 
 	cmd := &SheetsAppendCmd{Insert: "INSERT_ROWS", ValueInput: ""}
-	if err := runKong(t, cmd, []string{"s1", "Sheet1!A1", "--values-json", `[["a"]]`, "--copy-validation-from", "Sheet1!A2:A2"}, ctx, flags); err == nil {
-		t.Fatalf("expected missing updated range error")
+	err := runKong(t, cmd, []string{"s1", "Sheet1!A1", "--values-json", `[["a"]]`}, ctx, flags)
+	if err == nil {
+		t.Fatal("expected missing update metadata error")
+	}
+	if !strings.Contains(err.Error(), "append response missing update metadata") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestSheetsAppendCopyValidationMissingRange(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/sheets/v4")
+		path = strings.TrimPrefix(path, "/v4")
+		if strings.Contains(path, "/spreadsheets/s1/values/") && r.Method == http.MethodPost {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"updates": map[string]any{"updatedRange": ""},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	svc := newSheetsServiceFromServer(t, srv)
+	ctx := withSheetsTestService(newCmdRuntimeOutputContext(t, io.Discard, io.Discard), svc)
+	flags := &RootFlags{Account: "a@b.com"}
+
+	cmd := &SheetsAppendCmd{Insert: "INSERT_ROWS", ValueInput: ""}
+	err := runKong(t, cmd, []string{"s1", "Sheet1!A1", "--values-json", `[["a"]]`, "--copy-validation-from", "Sheet1!A2:A2"}, ctx, flags)
+	if err == nil {
+		t.Fatal("expected missing updated range error")
+	}
+	if !strings.Contains(err.Error(), "append response missing updated range for validation copy") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

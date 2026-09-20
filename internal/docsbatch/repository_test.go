@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -136,8 +137,18 @@ func TestRepositoryAppendValidation(t *testing.T) {
 	revisionMismatch := first
 
 	revisionMismatch.RevisionID = "rev2"
-	if _, err := repository.Append(revisionMismatch); err == nil {
+	_, err = repository.Append(revisionMismatch)
+	if err == nil {
 		t.Fatal("revision mismatch succeeded")
+	}
+	if !strings.Contains(err.Error(), "batch="+state.BatchID) {
+		t.Fatalf("revision mismatch error %q does not include batch=%s", err.Error(), state.BatchID)
+	}
+	if strings.Contains(err.Error(), "batch=rev1") {
+		t.Fatalf("revision mismatch error %q labels batch= with RequiredRevisionID", err.Error())
+	}
+	if !errors.Is(err, ErrRevisionChanged) {
+		t.Fatalf("revision mismatch error %v is not ErrRevisionChanged", err)
 	}
 
 	requireEmpty := first

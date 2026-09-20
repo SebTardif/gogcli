@@ -130,25 +130,28 @@ func TestRepositoryAppendValidation(t *testing.T) {
 		BatchID: state.BatchID, Command: "docs.insert", Identity: testIdentity("doc1"),
 		RevisionID: "rev1", Requests: request,
 	}
-	if _, err := repository.Append(first); err != nil {
-		t.Fatalf("first Append: %v", err)
+	if _, firstErr := repository.Append(first); firstErr != nil {
+		t.Fatalf("first Append: %v", firstErr)
 	}
 
 	revisionMismatch := first
-
 	revisionMismatch.RevisionID = "rev2"
-	_, err = repository.Append(revisionMismatch)
-	if err == nil {
+
+	_, mismatchErr := repository.Append(revisionMismatch)
+	if mismatchErr == nil {
 		t.Fatal("revision mismatch succeeded")
 	}
-	if !strings.Contains(err.Error(), "batch="+state.BatchID) {
-		t.Fatalf("revision mismatch error %q does not include batch=%s", err.Error(), state.BatchID)
+
+	if !strings.Contains(mismatchErr.Error(), "batch="+state.BatchID) {
+		t.Fatalf("revision mismatch error %q does not include batch=%s", mismatchErr.Error(), state.BatchID)
 	}
-	if strings.Contains(err.Error(), "batch=rev1") {
-		t.Fatalf("revision mismatch error %q labels batch= with RequiredRevisionID", err.Error())
+
+	if strings.Contains(mismatchErr.Error(), "batch=rev1") {
+		t.Fatalf("revision mismatch error %q labels batch= with RequiredRevisionID", mismatchErr.Error())
 	}
-	if !errors.Is(err, ErrRevisionChanged) {
-		t.Fatalf("revision mismatch error %v is not ErrRevisionChanged", err)
+
+	if !errors.Is(mismatchErr, ErrRevisionChanged) {
+		t.Fatalf("revision mismatch error %v is not ErrRevisionChanged", mismatchErr)
 	}
 
 	requireEmpty := first

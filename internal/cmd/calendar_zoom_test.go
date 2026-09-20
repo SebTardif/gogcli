@@ -33,9 +33,10 @@ func newCalendarServiceFromZoomTestServer(t *testing.T, ctx context.Context, srv
 }
 
 type fakeZoomCalendarClient struct {
-	created int
-	deleted []string
-	err     error
+	created   int
+	deleted   []string
+	err       error
+	deleteErr error
 }
 
 func (f *fakeZoomCalendarClient) CreateMeeting(context.Context, string, zoom.CreateMeetingRequest) (*zoom.Meeting, error) {
@@ -53,6 +54,9 @@ func (f *fakeZoomCalendarClient) CreateMeeting(context.Context, string, zoom.Cre
 
 func (f *fakeZoomCalendarClient) DeleteMeeting(_ context.Context, id string) error {
 	f.deleted = append(f.deleted, id)
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	return f.err
 }
 
@@ -107,6 +111,32 @@ func TestCalendarCreateCmd_WithZoomAndAttachments(t *testing.T) {
 	if !sawZoomDescription || !sawNoConferenceData || !sawAttachments || zoomClient.created != 1 {
 		t.Fatalf("expected zoom description+attachments, sawZoomDescription=%v sawNoConferenceData=%v sawAttachments=%v created=%d",
 			sawZoomDescription, sawNoConferenceData, sawAttachments, zoomClient.created)
+	}
+}
+
+func TestCalendarCreateCmd_WithZoomInsertFailureSurfacesRollbackError(t *testing.T) {
+	zoomClient := &fakeZoomCalendarClient{deleteErr: errors.New("zoom delete denied")}
+
+	srv := httptest.NewServer(withPrimaryCalendar(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/calendar/v3")
+		if r.Method == http.MethodPost && path == "/calendars/cal@example.com/events" {
+			http.Error(w, "calendar insert failed", http.StatusInternalServerError)
+			return
+		}
+		http.NotFound(w, r)
+	})))
+	defer srv.Close()
+	svc := newCalendarServiceFromZoomTestServer(t, context.Background(), srv)
+	ctx := newZoomCalendarTestJSONContext(t, svc, zoomClient)
+	err := runKong(t, &CalendarCreateCmd{}, []string{
+		"cal@example.com", "--summary", "Zoom", "--from", "2025-01-02T10:00:00Z", "--to", "2025-01-02T11:00:00Z",
+		"--with-zoom",
+	}, ctx, &RootFlags{Account: "a@b.com"})
+	if err == nil || !strings.Contains(err.Error(), "Zoom meeting rollback failed") || !strings.Contains(err.Error(), "zoom delete denied") {
+		t.Fatalf("error = %v, want rollback failure wrapping zoom delete denied", err)
+	}
+	if zoomClient.created != 1 || len(zoomClient.deleted) != 1 {
+		t.Fatalf("expected create then rollback delete, created=%d deleted=%v", zoomClient.created, zoomClient.deleted)
 	}
 }
 
@@ -328,6 +358,32 @@ func TestCalendarUpdateCmd_WithZoom(t *testing.T) {
 	if !sawZoomPatch || !sawNoConferenceData || zoomClient.created != 1 {
 		t.Fatalf("expected zoom patch/no-conference-data/create, sawZoomPatch=%v sawNoConferenceData=%v created=%d",
 			sawZoomPatch, sawNoConferenceData, zoomClient.created)
+	}
+}
+
+func TestCalendarUpdateCmd_WithZoomPatchFailureSurfacesRollbackError(t *testing.T) {
+	zoomClient := &fakeZoomCalendarClient{deleteErr: errors.New("zoom delete denied")}
+
+	srv := httptest.NewServer(withPrimaryCalendar(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/calendar/v3")
+		switch {
+		case r.Method == http.MethodGet && path == "/calendars/cal@example.com/events/ev":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "ev", "summary": "Existing"})
+		case r.Method == http.MethodPatch && path == "/calendars/cal@example.com/events/ev":
+			http.Error(w, "calendar update failed", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	})))
+	defer srv.Close()
+	svc := newCalendarServiceFromZoomTestServer(t, context.Background(), srv)
+	ctx := newZoomCalendarTestJSONContext(t, svc, zoomClient)
+	err := runKong(t, &CalendarUpdateCmd{}, []string{"cal@example.com", "ev", "--with-zoom"}, ctx, &RootFlags{Account: "a@b.com"})
+	if err == nil || !strings.Contains(err.Error(), "Zoom meeting rollback failed") || !strings.Contains(err.Error(), "zoom delete denied") {
+		t.Fatalf("error = %v, want rollback failure wrapping zoom delete denied", err)
+	}
+	if zoomClient.created != 1 || len(zoomClient.deleted) != 1 {
+		t.Fatalf("expected create then rollback delete, created=%d deleted=%v", zoomClient.created, zoomClient.deleted)
 	}
 }
 

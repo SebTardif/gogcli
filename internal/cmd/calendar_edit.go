@@ -169,7 +169,9 @@ func (c *CalendarCreateCmd) Run(ctx context.Context, flags *RootFlags, kctx *kon
 	})
 	if err != nil {
 		if zoomMeeting != nil {
-			_ = cancelZoomMeeting(ctx, zoomMeetingID(zoomMeeting), "delete")
+			if cancelErr := cancelZoomMeeting(ctx, zoomMeetingID(zoomMeeting), "delete"); cancelErr != nil {
+				return fmt.Errorf("calendar insert failed and Zoom meeting rollback failed: %w", errors.Join(err, cancelErr))
+			}
 		}
 		return err
 	}
@@ -422,7 +424,9 @@ func (c *CalendarUpdateCmd) Run(ctx context.Context, kctx *kong.Context, flags *
 	updated, err := mutation.patchEvent(ctx, targetEventID, patch, plan.SendUpdates)
 	if err != nil {
 		if c.createdZoomMeetingID != "" {
-			_ = cancelZoomMeeting(ctx, c.createdZoomMeetingID, "delete")
+			if cancelErr := cancelZoomMeeting(ctx, c.createdZoomMeetingID, "delete"); cancelErr != nil {
+				return fmt.Errorf("calendar update failed and Zoom meeting rollback failed: %w", errors.Join(err, cancelErr))
+			}
 		}
 		return err
 	}

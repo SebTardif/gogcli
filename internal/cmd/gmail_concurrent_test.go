@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,8 +14,44 @@ import (
 	"time"
 
 	"google.golang.org/api/gmail/v1"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
+
+func TestGmailSearchRejectsPartialThreadDetails(t *testing.T) {
+	var failedCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/gmail/v1/users/me/threads":
+			_, _ = io.WriteString(w, `{"threads":[{"id":"ok"},{"id":"fail"}]}`)
+		case "/gmail/v1/users/me/labels":
+			_, _ = io.WriteString(w, `{"labels":[]}`)
+		case "/gmail/v1/users/me/threads/ok":
+			_, _ = io.WriteString(w, `{"id":"ok","messages":[]}`)
+		case "/gmail/v1/users/me/threads/fail":
+			if failedCalls.Add(1) == 1 {
+				http.Error(w, "thread detail unavailable", http.StatusInternalServerError)
+				return
+			}
+			_, _ = io.WriteString(w, `{"id":"fail","messages":[]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	svc := newGoogleTestServiceWithEndpoint(t, server.Client(), server.URL+"/", gmail.NewService)
+	var output bytes.Buffer
+	ctx := withGmailTestService(newCmdRuntimeJSONOutputContext(t, &output, io.Discard), svc)
+	err := runKong(t, &GmailSearchCmd{}, []string{"in:inbox", "--fail-empty"}, ctx, &RootFlags{Account: "me@example.com"})
+	var apiErr *googleapi.Error
+	if !errors.As(err, &apiErr) || apiErr.Code != http.StatusInternalServerError {
+		t.Fatalf("error = %v, want the thread detail HTTP 500", err)
+	}
+	if output.Len() != 0 || failedCalls.Load() != 1 {
+		t.Fatalf("partial output = %q, failed thread calls = %d", output.String(), failedCalls.Load())
+	}
+}
 
 func TestFetchThreadDetails_Empty(t *testing.T) {
 	items, err := fetchThreadDetails(context.Background(), nil, nil, nil, false, time.UTC)
@@ -298,7 +337,7 @@ func TestFetchThreadDetails_ContextCanceled(t *testing.T) {
 	threads := []*gmail.Thread{{Id: "thread1"}}
 
 	_, err := fetchThreadDetails(ctx, svc, threads, nil, false, time.UTC)
-	// Context was canceled, we may or may not get an error depending on timing.
-	// Either nil or context.Canceled is acceptable.
-	_ = err
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
 }

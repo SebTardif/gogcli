@@ -132,8 +132,12 @@ func TestCalendarCreateCmd_WithZoomInsertFailureSurfacesRollbackError(t *testing
 		"cal@example.com", "--summary", "Zoom", "--from", "2025-01-02T10:00:00Z", "--to", "2025-01-02T11:00:00Z",
 		"--with-zoom",
 	}, ctx, &RootFlags{Account: "a@b.com"})
-	if err == nil || !strings.Contains(err.Error(), "Zoom meeting rollback failed") || !strings.Contains(err.Error(), "zoom delete denied") {
-		t.Fatalf("error = %v, want rollback failure wrapping zoom delete denied", err)
+	message := errorMessage(nil, err)
+	if !strings.Contains(message, "Zoom meeting rollback failed") || !strings.Contains(message, "zoom delete denied") || !strings.Contains(message, "calendar ") {
+		t.Fatalf("formatted error = %q, want both Calendar and Zoom rollback failures", message)
+	}
+	if !errors.Is(err, zoomClient.deleteErr) || ExitCode(stableExitCode(err)) != 8 {
+		t.Fatalf("error = %v, want preserved Zoom cause and Calendar retryable exit code", err)
 	}
 	if zoomClient.created != 1 || len(zoomClient.deleted) != 1 {
 		t.Fatalf("expected create then rollback delete, created=%d deleted=%v", zoomClient.created, zoomClient.deleted)
@@ -379,8 +383,12 @@ func TestCalendarUpdateCmd_WithZoomPatchFailureSurfacesRollbackError(t *testing.
 	svc := newCalendarServiceFromZoomTestServer(t, context.Background(), srv)
 	ctx := newZoomCalendarTestJSONContext(t, svc, zoomClient)
 	err := runKong(t, &CalendarUpdateCmd{}, []string{"cal@example.com", "ev", "--with-zoom"}, ctx, &RootFlags{Account: "a@b.com"})
-	if err == nil || !strings.Contains(err.Error(), "Zoom meeting rollback failed") || !strings.Contains(err.Error(), "zoom delete denied") {
-		t.Fatalf("error = %v, want rollback failure wrapping zoom delete denied", err)
+	message := errorMessage(nil, err)
+	if !strings.Contains(message, "Zoom meeting rollback failed") || !strings.Contains(message, "zoom delete denied") || !strings.Contains(message, "calendar ") {
+		t.Fatalf("formatted error = %q, want both Calendar and Zoom rollback failures", message)
+	}
+	if !errors.Is(err, zoomClient.deleteErr) || ExitCode(stableExitCode(err)) != 8 {
+		t.Fatalf("error = %v, want preserved Zoom cause and Calendar retryable exit code", err)
 	}
 	if zoomClient.created != 1 || len(zoomClient.deleted) != 1 {
 		t.Fatalf("expected create then rollback delete, created=%d deleted=%v", zoomClient.created, zoomClient.deleted)

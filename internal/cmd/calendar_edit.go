@@ -9,6 +9,7 @@ import (
 	"github.com/alecthomas/kong"
 	"google.golang.org/api/calendar/v3"
 
+	"github.com/openclaw/gogcli/internal/errfmt"
 	"github.com/openclaw/gogcli/internal/ui"
 	"github.com/openclaw/gogcli/internal/zoom"
 )
@@ -170,7 +171,8 @@ func (c *CalendarCreateCmd) Run(ctx context.Context, flags *RootFlags, kctx *kon
 	if err != nil {
 		if zoomMeeting != nil {
 			if cancelErr := cancelZoomMeeting(ctx, zoomMeetingID(zoomMeeting), "delete"); cancelErr != nil {
-				return fmt.Errorf("calendar insert failed and Zoom meeting rollback failed: %w", errors.Join(err, cancelErr))
+				rollbackErr := fmt.Errorf("calendar insert failed and Zoom meeting rollback failed: %w", errors.Join(err, cancelErr))
+				return errfmt.NewUserFacingError(rollbackErr.Error(), rollbackErr)
 			}
 		}
 		return err
@@ -425,7 +427,8 @@ func (c *CalendarUpdateCmd) Run(ctx context.Context, kctx *kong.Context, flags *
 	if err != nil {
 		if c.createdZoomMeetingID != "" {
 			if cancelErr := cancelZoomMeeting(ctx, c.createdZoomMeetingID, "delete"); cancelErr != nil {
-				return fmt.Errorf("calendar update failed and Zoom meeting rollback failed: %w", errors.Join(err, cancelErr))
+				rollbackErr := fmt.Errorf("calendar update failed and Zoom meeting rollback failed: %w", errors.Join(err, cancelErr))
+				return errfmt.NewUserFacingError(rollbackErr.Error(), rollbackErr)
 			}
 		}
 		return err
